@@ -16,7 +16,8 @@ import traceback
 try:
     import syslog
 except ImportError:
-    # only required when 'syslog' is specified as the log filename
+    # only required when 'syslog' is specified as the log filename, or one of
+    # syslog_stdout and syslog_stderr is set to true
     pass
 
 class LevelsByName:
@@ -346,7 +347,7 @@ class SyslogHandler(Handler):
             self.handleError(record)
 
 def getLogger(filename, level, fmt, rotating=False, maxbytes=0, backups=0,
-              stdout=False):
+              stdout=False, syslog=False):
 
     handlers = []
 
@@ -359,7 +360,7 @@ def getLogger(filename, level, fmt, rotating=False, maxbytes=0, backups=0,
         handlers.append(StreamHandler(io))
         logger.getvalue = io.getvalue
 
-    elif filename == 'syslog':
+    elif syslog or filename == 'syslog':
         handlers.append(SyslogHandler())
 
     else:
