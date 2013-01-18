@@ -212,8 +212,7 @@ follows.
 ``logfile_backups``
 
   The number of backups to keep around resulting from activity log
-  file rotation.  Set this to 0 to indicate an unlimited number of
-  backups.
+  file rotation.  If set to 0, no backups will be kept.
 
   *Default*:  10
 
@@ -781,6 +780,12 @@ where specified.
   ``process_num``, ``program_name``, and ``here`` (the directory of the
   supervisord config file).
 
+  .. note::
+
+     It is not possible for two processes to share a single log file
+     (``stdout_logfile``) when rotation (``stdout_logfile_maxbytes``)
+     is enabled.  This will result in the file being corrupted.
+
   *Default*: ``AUTO``
 
   *Required*:  No.
@@ -803,8 +808,8 @@ where specified.
 ``stdout_logfile_backups``
 
   The number of ``stdout_logfile`` backups to keep around resulting
-  from process stdout log file rotation.  Set this to 0 to indicate an
-  unlimited number of backups.
+  from process stdout log file rotation.  If set to 0, no backups
+  will be kept.
 
   *Default*: 10
 
@@ -844,6 +849,12 @@ where specified.
   true.  Accepts the same value types as ``stdout_logfile`` and may
   contain the same Python string expressions.
 
+  .. note::
+
+     It is not possible for two processes to share a single log file
+     (``stderr_logfile``) when rotation (``stderr_logfile_maxbytes``)
+     is enabled.  This will result in the file being corrupted.
+
   *Default*: ``AUTO``
 
   *Required*:  No.
@@ -865,8 +876,7 @@ where specified.
 ``stderr_logfile_backups``
 
   The number of backups to keep around resulting from process stderr
-  log file rotation.  Set this to 0 to indicate an unlimited number of
-  backups.
+  log file rotation.  If set to 0, no backups will be kept.
 
   *Default*: 10
 

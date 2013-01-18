@@ -4,6 +4,22 @@ Next release
 - Fixed a bug where parsing ``command=`` could cause supervisord to crash if
   shlex.split() fails, such as a bad quoting.  Patch by Scott Wilson.
 
+- It is now possible to use ``supervisorctl`` on a machine with no
+  ``supervisord.conf`` file by supplying the connection information in
+  command line options.  Patch by Jens Rantil.
+
+- Reverted a change to logging introduced in 3.0b1 that was intended to allow
+  multiple processes to log to the same file with the rotating log handler.
+  The implementation caused supervisord to crash during reload and to leak
+  file handles.  Also, since log rotation options are given on a per-program
+  basis, impossible configurations could be created (conflicting rotation
+  options for the same file).  Given this and that supervisord now has syslog
+  support, it was decided to remove this feature.  A warning was added to the
+  documentation that two processes may not log to the same file.
+
+- Fixed a bug where supervisord would crash if the syslog handler was used
+  and supervisord received SIGUSR2 (log reopen request).
+
 3.0b1 (2012-09-10)
 ------------------
 

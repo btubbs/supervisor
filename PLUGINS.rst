@@ -9,7 +9,7 @@ See README.rst for information on how to contribute to this list.
 Obviously, you can always also send an e-mail to the supervisor mailing
 list to inform about missing plugins or libraries for/using supervisor.
 
-3rd Party Applications/Plugins/Libraries for supervisor
+3rd Party Applications/Plugins/Libraries for Supervisor
 =======================================================
 
 These are applications/plugins/libraries that add functionality or
@@ -39,9 +39,11 @@ listeners.
     An RPC extension for Supervisor that allows Supervisor's
     configuration and state to be manipulated in ways that are not
     normally possible at runtime.
+`supervisor-stdout <https://github.com/coderanger/supervisor-stdout>`_
+    An event listener that sends process output to supervisord's stdout.
 
-Libraries that integrates 3rd Party Applications with supervisor
-================================================================
+Libraries that integrate 3rd Party Applications with Supervisor
+===============================================================
 
 These are libraries and plugins that makes it easier to use supervisor
 with 3rd party applications:
@@ -56,9 +58,13 @@ with 3rd party applications:
     An nginx module providing API to communicate with supervisord and
     manage (start/stop) backends on-demand.
 `Supervisord-Nagios-Plugin <https://github.com/Level-Up/Supervisord-Nagios-Plugin>`_
-    A Nagios/icinga plugin to monitor individual supervisord processes.
+    A Nagios/Icinga plugin written in Python to monitor individual supervisord processes.
+`nagios-supervisord-processes <https://github.com/blablacar/nagios-supervisord-processes>`_
+    A Nagios/Icinga plugin written in PHP to monitor individual supervisord processes.
 `php-supervisor-event <https://github.com/mtdowling/php-supervisor-event>`_
     PHP classes for interacting with Supervisor event notifications.
+`supervisord-php-client <https://github.com/mondalaci/supervisord-php-client>`_
+    PHP client for the supervisord XML-RPC interface.
 `sd-supervisord <https://github.com/robcowie/sd-supervisord>`_
     `Server Density <http://www.serverdensity.com>`_ plugin for
     supervisor.
@@ -66,3 +72,11 @@ with 3rd party applications:
     Lists for supervisord events and raises them.
 `ruby-supervisor <https://github.com/schmurfy/ruby-supervisor>`_
     Ruby client library for Supervisor's XML-RPC interface.
+`Sulphite <https://github.com/jib/sulphite>`_
+    Sends supervisord events to `Graphite <https://github.com/graphite-project/graphite-web>`_.
+`supervisord.tmbundle <https://github.com/countergram/supervisord.tmbundle>`_
+    `TextMate <http://macromates.com/>`_ bundle for supervisord.conf.
+`capistrano-supervisord <https://github.com/yyuu/capistrano-supervisord>`_
+    `Capistrano <https://github.com/capistrano/capistrano>`_ recipe to deploy supervisord based services.
+`chef-supervisor <https://github.com/coderanger/chef-supervisor>`_
+    `Chef <http://www.opscode.com/chef/>`_ cookbook install and configure supervisord.

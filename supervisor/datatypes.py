@@ -1,7 +1,6 @@
 import grp
 import os
 import pwd
-import re
 import signal
 import sys
 import socket
@@ -353,7 +352,7 @@ def existing_dirpath(v):
 
 def logging_level(value):
     s = str(value).lower()
-    level = getLevelNumByDescription(value)
+    level = getLevelNumByDescription(s)
     if level is None:
         raise ValueError('bad logging level name %r' % value)
     return level
