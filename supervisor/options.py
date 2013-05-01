@@ -305,7 +305,7 @@ class Options:
 
     def process_config(self, do_usage=True):
         """Process configuration data structure.
-        
+
         This includes reading config file if necessary, setting defaults etc.
         """
         if self.configfile:
@@ -438,10 +438,12 @@ class ServerOptions(Options):
         self.stdout.write('%s\n' % VERSION)
         self.exit(0)
 
-    def getLogger(self, filename, level, fmt, rotating=False, maxbytes=0,
-                  backups=0, stdout=False):
-        return loggers.getLogger(filename, level, fmt, rotating, maxbytes,
-                                 backups, stdout)
+    def getLogger(self, *args, **kwargs):
+        """
+        A proxy to loggers.getLogger so the options might customize log setup.
+        Used by tests to mock log setup.
+        """
+        return loggers.getLogger(*args, **kwargs)
 
     def realize(self, *arg, **kw):
         Options.realize(self, *arg, **kw)
@@ -811,7 +813,7 @@ class ServerOptions(Options):
                 raise ValueError(
                     '%(process_num) must be present within process_name when '
                     'numprocs > 1')
-                    
+
         if stopasgroup and not killasgroup:
             raise ValueError("Cannot set stopasgroup=true and killasgroup=false")
 
@@ -848,6 +850,10 @@ class ServerOptions(Options):
                 maxbytes = byte_size(get(section, mb_key, '50MB'))
                 logfiles[mb_key] = maxbytes
 
+                sy_key = '%s_syslog' % k
+                syslog = boolean(get(section, sy_key, False))
+                logfiles[syslog] = syslog
+
                 if lf_val is Automatic and not maxbytes:
                     self.parse_warnings.append(
                         'For [%s], AUTO logging used for %s without '
@@ -871,11 +877,13 @@ class ServerOptions(Options):
                 stdout_events_enabled = stdout_events,
                 stdout_logfile_backups=logfiles['stdout_logfile_backups'],
                 stdout_logfile_maxbytes=logfiles['stdout_logfile_maxbytes'],
+                stdout_syslog=logfiles['stdout_syslog'],
                 stderr_logfile=logfiles['stderr_logfile'],
                 stderr_capture_maxbytes = stderr_cmaxbytes,
                 stderr_events_enabled = stderr_events,
                 stderr_logfile_backups=logfiles['stderr_logfile_backups'],
                 stderr_logfile_maxbytes=logfiles['stderr_logfile_maxbytes'],
+                stderr_syslog=logfiles['stderr_syslog'],
                 stopsignal=stopsignal,
                 stopwaitsecs=stopwaitsecs,
                 stopasgroup=stopasgroup,
@@ -1183,7 +1191,7 @@ class ServerOptions(Options):
 
             # always put our primary gid first in this list, otherwise we can
             # lose group info since sometimes the first group in the setgroups
-            # list gets overwritten on the subsequent setgid call (at least on 
+            # list gets overwritten on the subsequent setgid call (at least on
             # freebsd 9 with python 2.7 - this will be safe though for all unix
             # /python version combos)
             groups.insert(0, gid)
