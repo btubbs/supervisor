@@ -11,13 +11,13 @@ RCS_ID = '$Id: default_handler.py,v 1.8 2002/08/01 18:15:45 akuchling Exp $'
 import mimetypes
 import re
 import stat
-import string
 
 # medusa modules
-import http_date
-import http_server
-import status_handler
-import producers
+import supervisor.medusa.http_date as http_date
+import supervisor.medusa.http_server as http_server
+import supervisor.medusa.producers as producers
+
+from supervisor.medusa.util import html_repr
 
 unquote = http_server.unquote
 
@@ -34,7 +34,7 @@ unquote = http_server.unquote
 # class <default_with_post_handler>, defined below.
 #
 
-from counter import counter
+from supervisor.medusa.counter import counter
 
 class default_handler:
 
@@ -105,7 +105,7 @@ class default_handler:
             # purpose
             found = 0
             if path and path[-1] != '/':
-                path = path + '/'
+                path += '/'
             for default in self.directory_defaults:
                 p = path + default
                 if self.filesystem.isfile (p):
@@ -129,7 +129,7 @@ class default_handler:
             length = ims.group (4)
             if length:
                 try:
-                    length = string.atoi (length)
+                    length = int(length)
                     if length != file_length:
                         length_match = 0
                 except:
@@ -169,7 +169,6 @@ class default_handler:
         request.done()
 
     def set_content_type (self, path, request):
-        ext = string.lower (get_extension (path))
         typ, encoding = mimetypes.guess_type(path)
         if typ is not None:
             request['Content-Type'] = typ
@@ -180,7 +179,7 @@ class default_handler:
 
     def status (self):
         return producers.simple_producer (
-                '<li>%s' % status_handler.html_repr (self)
+                '<li>%s' % html_repr (self)
                 + '<ul>'
                 + '  <li><b>Total Hits:</b> %s'                 % self.hit_counter
                 + '  <li><b>Files Delivered:</b> %s'    % self.file_counter
@@ -207,8 +206,8 @@ get_header = http_server.get_header
 get_header_match = http_server.get_header_match
 
 def get_extension (path):
-    dirsep = string.rfind (path, '/')
-    dotsep = string.rfind (path, '.')
+    dirsep = path.rfind('/')
+    dotsep = path.rfind('.')
     if dotsep > dirsep:
         return path[dotsep+1:]
     else:

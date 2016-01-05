@@ -1,22 +1,26 @@
 import os
 import re
-import cgi
 import time
 import traceback
-import urllib
 import datetime
-import StringIO
+
+import meld3
+
+from supervisor.compat import urllib
+from supervisor.compat import parse_qs
+from supervisor.compat import parse_qsl
+from supervisor.compat import as_string
+from supervisor.compat import PY3
 
 from supervisor.medusa import producers
 from supervisor.medusa.http_server import http_date
 from supervisor.medusa.http_server import get_header
 from supervisor.medusa.xmlrpc_handler import collector
 
-import meld3
-
 from supervisor.process import ProcessStates
 from supervisor.http import NOT_DONE_YET
 
+from supervisor.options import VERSION
 from supervisor.options import make_namespec
 from supervisor.options import split_namespec
 
@@ -45,16 +49,14 @@ class DeferredWebProducer:
             response = self.callback()
             if response is NOT_DONE_YET:
                 return NOT_DONE_YET
-                
+
             self.finished = True
             return self.sendresponse(response)
 
         except:
-            io = StringIO.StringIO()
-            traceback.print_exc(file=io)
+            tb = traceback.format_exc()
             # this should go to the main supervisor log file
-            self.request.channel.server.logger.log('Web interface error',
-                                                  io.getvalue())
+            self.request.channel.server.logger.log('Web interface error', tb)
             self.finished = True
             self.request.error(500)
 
@@ -64,7 +66,7 @@ class DeferredWebProducer:
         for header in headers:
             self.request[header] = headers[header]
 
-        if not self.request.has_key('Content-Type'):
+        if 'Content-Type' not in self.request:
             self.request['Content-Type'] = 'text/plain'
 
         if headers.get('Location'):
@@ -74,7 +76,7 @@ class DeferredWebProducer:
 
         body = response.get('body', '')
         self.request['Content-Length'] = len(body)
-            
+
         self.request.push(body)
 
         connection = get_header(self.CONNECTION, self.request.header)
@@ -93,8 +95,8 @@ class DeferredWebProducer:
         elif self.request.version == '1.1':
             if connection == 'close':
                 close_it = 1
-            elif not self.request.has_key ('Content-Length'):
-                if self.request.has_key ('Transfer-Encoding'):
+            elif 'Content-Length' not in self.request:
+                if 'Transfer-Encoding' in self.request:
                     if not self.request['Transfer-Encoding'] == 'chunked':
                         close_it = 1
                 elif self.request.use_chunked:
@@ -120,6 +122,12 @@ class DeferredWebProducer:
                 [outgoing_header, outgoing_producer]
                 )
         else:
+            # fix AttributeError: 'unicode' object has no attribute 'more'
+            if (not PY3) and (len(self.request.outgoing) > 0):
+                body = self.request.outgoing[0]
+                if isinstance(body, unicode):
+                    self.request.outgoing[0] = producers.simple_producer (body)
+
             # prepend the header
             self.request.outgoing.insert(0, outgoing_header)
             outgoing_producer = producers.composite_producer (
@@ -171,8 +179,11 @@ class MeldView:
         headers['Pragma'] = 'no-cache'
         headers['Cache-Control'] = 'no-cache'
         headers['Expires'] = http_date.build_http_date(0)
-        response['body'] = body
+        response['body'] = as_string(body)
         return response
+
+    def render(self):
+        pass
 
     def clone(self):
         return self.root.clone()
@@ -187,18 +198,22 @@ class TailView(MeldView):
             processname = None
         else:
             processname = form['processname']
-
+            offset = 0
+            limit = form.get('limit', '1024')
+            limit = min(-1024, int(limit)*-1 if limit.isdigit() else -1024)
             if not processname:
                 tail = 'No process name found'
             else:
                 rpcinterface = SupervisorNamespaceRPCInterface(supervisord)
                 try:
-                    tail = rpcinterface.readProcessLog(processname, -1024, 0)
-                except RPCError, e:
+                    tail = rpcinterface.readProcessStdoutLog(processname,
+                                                             limit, offset)
+                except RPCError as e:
                     if e.code == Faults.NO_FILE:
                         tail = 'No file for %s' % processname
                     else:
-                        raise
+                        tail = 'ERROR: unexpected rpc fault [%d] %s' % (
+                            e.code, e.text)
 
         root = self.clone()
 
@@ -209,12 +224,15 @@ class TailView(MeldView):
 
         refresh_anchor = root.findmeld('refresh_anchor')
         if processname is not None:
-            refresh_anchor.attributes(href='tail.html?processname=%s' %
-                                      urllib.quote(processname))
+            refresh_anchor.attributes(
+                href='tail.html?processname=%s&limit=%s' % (
+                    urllib.quote(processname), urllib.quote(str(abs(limit)))
+                    )
+            )
         else:
             refresh_anchor.deparent()
 
-        return root.write_xhtmlstring()
+        return as_string(root.write_xhtmlstring())
 
 class StatusView(MeldView):
     def actions_for_process(self, process):
@@ -316,59 +334,126 @@ class StatusView(MeldView):
                 if process is None:
                     return wrong
 
+                if action == 'start':
+                    try:
+                        bool_or_callback = (
+                            rpcinterface.supervisor.startProcess(namespec)
+                            )
+                    except RPCError as e:
+                        if e.code == Faults.NO_FILE:
+                            msg = 'no such file'
+                        elif e.code == Faults.NOT_EXECUTABLE:
+                            msg = 'file not executable'
+                        elif e.code == Faults.ALREADY_STARTED:
+                            msg = 'already started'
+                        elif e.code == Faults.SPAWN_ERROR:
+                            msg = 'spawn error'
+                        elif e.code == Faults.ABNORMAL_TERMINATION:
+                            msg = 'abnormal termination'
+                        else:
+                            msg = 'unexpected rpc fault [%d] %s' % (
+                                e.code, e.text)
+                        def starterr():
+                            return 'ERROR: Process %s: %s' % (namespec, msg)
+                        starterr.delay = 0.05
+                        return starterr
+
+                    if callable(bool_or_callback):
+                        def startprocess():
+                            try:
+                                result = bool_or_callback()
+                            except RPCError as e:
+                                if e.code == Faults.SPAWN_ERROR:
+                                    msg = 'spawn error'
+                                elif e.code == Faults.ABNORMAL_TERMINATION:
+                                    msg = 'abnormal termination'
+                                else:
+                                    msg = 'unexpected rpc fault [%d] %s' % (
+                                        e.code, e.text)
+                                return 'ERROR: Process %s: %s' % (namespec, msg)
+
+                            if result is NOT_DONE_YET:
+                                return NOT_DONE_YET
+                            return 'Process %s started' % namespec
+                        startprocess.delay = 0.05
+                        return startprocess
+                    else:
+                        def startdone():
+                            return 'Process %s started' % namespec
+                        startdone.delay = 0.05
+                        return startdone
+
                 elif action == 'stop':
-                    callback = rpcinterface.supervisor.stopProcess(namespec)
-                    def stopprocess():
-                        result = callback()
-                        if result is NOT_DONE_YET:
-                            return NOT_DONE_YET
-                        return 'Process %s stopped' % namespec
-                    stopprocess.delay = 0.05
-                    return stopprocess
+                    try:
+                        bool_or_callback = (
+                            rpcinterface.supervisor.stopProcess(namespec)
+                            )
+                    except RPCError as e:
+                        def stoperr():
+                            return 'unexpected rpc fault [%d] %s' % (
+                                e.code, e.text)
+                        stoperr.delay = 0.05
+                        return stoperr
+
+                    if callable(bool_or_callback):
+                        def stopprocess():
+                            try:
+                                result = bool_or_callback()
+                            except RPCError as e:
+                                return 'unexpected rpc fault [%d] %s' % (
+                                    e.code, e.text)
+                            if result is NOT_DONE_YET:
+                                return NOT_DONE_YET
+                            return 'Process %s stopped' % namespec
+                        stopprocess.delay = 0.05
+                        return stopprocess
+                    else:
+                        def stopdone():
+                            return 'Process %s stopped' % namespec
+                        stopdone.delay = 0.05
+                        return stopdone
 
                 elif action == 'restart':
-                    callback = rpcinterface.system.multicall(
+                    results_or_callback = rpcinterface.system.multicall(
                         [ {'methodName':'supervisor.stopProcess',
                            'params': [namespec]},
                           {'methodName':'supervisor.startProcess',
                            'params': [namespec]},
                           ]
                         )
-                    def restartprocess():
-                        result = callback()
-                        if result is NOT_DONE_YET:
-                            return NOT_DONE_YET
-                        return 'Process %s restarted' % namespec
-                    restartprocess.delay = 0.05
-                    return restartprocess
+                    if callable(results_or_callback):
+                        callback = results_or_callback
+                        def restartprocess():
+                            results = callback()
+                            if results is NOT_DONE_YET:
+                                return NOT_DONE_YET
+                            return 'Process %s restarted' % namespec
+                        restartprocess.delay = 0.05
+                        return restartprocess
+                    else:
+                        def restartdone():
+                            return 'Process %s restarted' % namespec
+                        restartdone.delay = 0.05
+                        return restartdone
 
-                elif action == 'start':
-                    try:
-                        callback = rpcinterface.supervisor.startProcess(
-                            namespec)
-                    except RPCError, e:
-                        if e.code == Faults.SPAWN_ERROR:
-                            def spawnerr():
-                                return 'Process %s spawn error' % namespec
-                            spawnerr.delay = 0.05
-                            return spawnerr
-                    def startprocess():
-                        if callback() is NOT_DONE_YET:
-                            return NOT_DONE_YET
-                        return 'Process %s started' % namespec
-                    startprocess.delay = 0.05
-                    return startprocess
-                
                 elif action == 'clearlog':
-                    callback = rpcinterface.supervisor.clearProcessLog(
-                        namespec)
+                    try:
+                        callback = rpcinterface.supervisor.clearProcessLogs(
+                            namespec)
+                    except RPCError as e:
+                        def clearerr():
+                            return 'unexpected rpc fault [%d] %s' % (
+                                e.code, e.text)
+                        clearerr.delay = 0.05
+                        return clearerr
+
                     def clearlog():
                         return 'Log for %s cleared' % namespec
                     clearlog.delay = 0.05
                     return clearlog
 
         raise ValueError(action)
-    
+
     def render(self):
         form = self.context.form
         response = self.context.response
@@ -398,10 +483,8 @@ class StatusView(MeldView):
             )
 
         processnames = []
-        groups = supervisord.process_groups.values()
-        for group in groups:
-            gprocnames = group.processes.keys()
-            for gprocname in gprocnames:
+        for group in supervisord.process_groups.values():
+            for gprocname in group.processes.keys():
                 processnames.append((group.config.name, gprocname))
 
         processnames.sort()
@@ -420,7 +503,7 @@ class StatusView(MeldView):
                 'state':info['state'],
                 'description':info['description'],
                 })
-        
+
         root = self.clone()
 
         if message is not None:
@@ -449,34 +532,35 @@ class StatusView(MeldView):
 
                 actions = item['actions']
                 actionitem_td = tr_element.findmeld('actionitem_td')
-                
+
                 for li_element, actionitem in actionitem_td.repeat(actions):
                     anchor = li_element.findmeld('actionitem_anchor')
                     if actionitem is None:
                         anchor.attrib['class'] = 'hidden'
                     else:
-                        anchor.attributes(href=actionitem['href'], 
+                        anchor.attributes(href=actionitem['href'],
                                           name=actionitem['name'])
                         anchor.content(actionitem['name'])
                         if actionitem['target']:
                             anchor.attributes(target=actionitem['target'])
-                if shaded_tr: 
+                if shaded_tr:
                     tr_element.attrib['class'] = 'shade'
                 shaded_tr = not shaded_tr
         else:
             table = root.findmeld('statustable')
             table.replace('No programs to manage')
 
+        root.findmeld('supervisor_version').content(VERSION)
         copyright_year = str(datetime.date.today().year)
         root.findmeld('copyright_date').content(copyright_year)
 
-        return root.write_xhtmlstring()
+        return as_string(root.write_xhtmlstring())
 
 class OKView:
     delay = 0
     def __init__(self, context):
         self.context = context
-        
+
     def __call__(self):
         return {'body':'OK'}
 
@@ -513,7 +597,7 @@ class supervisor_ui_handler:
 
         if not path:
             path = 'index.html'
-            
+
         for viewname in VIEWS.keys():
             if viewname == path:
                 return True
@@ -528,14 +612,14 @@ class supervisor_ui_handler:
         form = {}
         cgi_env = request.cgi_environment()
         form.update(cgi_env)
-        if not form.has_key('QUERY_STRING'):
+        if 'QUERY_STRING' not in form:
             form['QUERY_STRING'] = ''
 
         query = form['QUERY_STRING']
 
         # we only handle x-www-form-urlencoded values from POSTs
-        form_urlencoded = cgi.parse_qsl(data)
-        query_data = cgi.parse_qs(query)
+        form_urlencoded = parse_qsl(data)
+        query_data = parse_qs(query)
 
         for k, v in query_data.items():
             # ignore dupes
@@ -559,8 +643,7 @@ class supervisor_ui_handler:
             # this should never happen if our match method works
             return
 
-        response = {}
-        response['headers'] = {}
+        response = {'headers': {}}
 
         viewclass = viewinfo['view']
         viewtemplate = viewinfo['template']

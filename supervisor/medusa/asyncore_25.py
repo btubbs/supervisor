@@ -32,7 +32,7 @@ than one thing at a time".  Multi-threaded programming is the simplest and
 most popular way to do it, but there is another very different technique,
 that lets you have nearly all the advantages of multi-threading, without
 actually using multiple threads. it's really only practical if your program
-is largely I/O bound. If your program is CPU bound, then pre-emptive
+is largely I/O bound. If your program is CPU bound, then preemptive
 scheduled threads are probably what you really need. Network servers are
 rarely CPU-bound, however.
 
@@ -54,6 +54,9 @@ import time
 import os
 from errno import EALREADY, EINPROGRESS, EWOULDBLOCK, ECONNRESET, \
      ENOTCONN, ESHUTDOWN, EINTR, EISCONN, errorcode
+
+from supervisor.compat import as_string, as_bytes
+from supervisor.medusa import text_socket
 
 try:
     socket_map
@@ -119,8 +122,8 @@ def poll(timeout=0.0, map=None):
         else:
             try:
                 r, w, e = select.select(r, w, e, timeout)
-            except select.error, err:
-                if err[0] != EINTR:
+            except select.error as err:
+                if err.args[0] != EINTR:
                     raise
                 else:
                     return
@@ -165,8 +168,8 @@ def poll2(timeout=0.0, map=None):
                 pollster.register(fd, flags)
         try:
             r = pollster.poll(timeout)
-        except select.error, err:
-            if err[0] != EINTR:
+        except select.error as err:
+            if err.args[0] != EINTR:
                 raise
             r = []
         for fd, flags in r:
@@ -193,7 +196,7 @@ def loop(timeout=30.0, use_poll=False, map=None, count=None):
     else:
         while map and count > 0:
             poll_fun(timeout, map)
-            count = count - 1
+            count -= 1
 
 class dispatcher:
 
@@ -247,14 +250,14 @@ class dispatcher:
         fd = self._fileno
         if map is None:
             map = self._map
-        if map.has_key(fd):
+        if fd in map:
             #self.log_info('closing channel %d:%s' % (fd, self))
             del map[fd]
         self._fileno = None
 
     def create_socket(self, family, type):
         self.family_and_type = family, type
-        self.socket = socket.socket(family, type)
+        self.socket = text_socket.text_socket(family, type)
         self.socket.setblocking(0)
         self._fileno = self.socket.fileno()
         self.add_channel()
@@ -313,15 +316,15 @@ class dispatcher:
             self.connected = True
             self.handle_connect()
         else:
-            raise socket.error, (err, errorcode[err])
+            raise socket.error(err, errorcode[err])
 
     def accept(self):
         # XXX can return either an address pair or None
         try:
             conn, addr = self.socket.accept()
             return conn, addr
-        except socket.error, why:
-            if why[0] == EWOULDBLOCK:
+        except socket.error as why:
+            if why.args[0] == EWOULDBLOCK:
                 pass
             else:
                 raise
@@ -330,12 +333,11 @@ class dispatcher:
         try:
             result = self.socket.send(data)
             return result
-        except socket.error, why:
-            if why[0] == EWOULDBLOCK:
+        except socket.error as why:
+            if why.args[0] == EWOULDBLOCK:
                 return 0
             else:
                 raise
-            return 0
 
     def recv(self, buffer_size):
         try:
@@ -347,9 +349,9 @@ class dispatcher:
                 return ''
             else:
                 return data
-        except socket.error, why:
+        except socket.error as why:
             # winsock sometimes throws ENOTCONN
-            if why[0] in [ECONNRESET, ENOTCONN, ESHUTDOWN]:
+            if why.args[0] in [ECONNRESET, ENOTCONN, ESHUTDOWN]:
                 self.handle_close()
                 return ''
             else:
@@ -373,7 +375,7 @@ class dispatcher:
 
     def log_info(self, message, type='info'):
         if __debug__ or type != 'info':
-            print '%s: %s' % (type, message)
+            print('%s: %s' % (type, message))
 
     def handle_read_event(self):
         if self.accepting:
@@ -450,7 +452,6 @@ class dispatcher_with_send(dispatcher):
         self.out_buffer = ''
 
     def initiate_send(self):
-        num_sent = 0
         num_sent = dispatcher.send(self, self.out_buffer[:512])
         self.out_buffer = self.out_buffer[num_sent:]
 
@@ -519,11 +520,11 @@ if os.name == 'posix':
         def __init__(self, fd):
             self.fd = fd
 
-        def recv(self, *args):
-            return os.read(self.fd, *args)
+        def recv(self, buffersize):
+            return as_string(os.read(self.fd, buffersize))
 
-        def send(self, *args):
-            return os.write(self.fd, *args)
+        def send(self, s):
+            return os.write(self.fd, as_bytes(s))
 
         read = recv
         write = send
@@ -542,7 +543,7 @@ if os.name == 'posix':
             self.set_file(fd)
             # set it to non-blocking mode
             flags = fcntl.fcntl(fd, fcntl.F_GETFL, 0)
-            flags = flags | os.O_NONBLOCK
+            flags |= os.O_NONBLOCK
             fcntl.fcntl(fd, fcntl.F_SETFL, flags)
 
         def set_file(self, fd):

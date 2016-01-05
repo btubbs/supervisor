@@ -6,7 +6,7 @@ Usage: %s [options]
 
 Options:
 -c/--configuration FILENAME -- configuration file
--n/--nodaemon -- run in the foreground (same as 'nodaemon true' in config file)
+-n/--nodaemon -- run in the foreground (same as 'nodaemon=true' in config file)
 -h/--help -- print this usage message and exit
 -v/--version -- print supervisord version number and exit
 -u/--user USER -- run supervisord as this user (or numeric uid)
@@ -32,8 +32,6 @@ Options:
 
 import os
 import time
-import errno
-import select
 import signal
 
 from supervisor.medusa import asyncore_25 as asyncore
@@ -69,6 +67,7 @@ class Supervisor:
         if self.options.first:
             rlimit_messages = self.options.set_rlimits()
             info_messages.extend(rlimit_messages)
+        info_messages.extend(self.options.parse_infos)
         warn_messages.extend(self.options.parse_warnings)
 
         # this sets the options.logger object
@@ -135,16 +134,14 @@ class Supervisor:
 
     def get_process_map(self):
         process_map = {}
-        pgroups = self.process_groups.values()
-        for group in pgroups:
+        for group in self.process_groups.values():
             process_map.update(group.get_dispatchers())
         return process_map
 
     def shutdown_report(self):
         unstopped = []
 
-        pgroups = self.process_groups.values()
-        for group in pgroups:
+        for group in self.process_groups.values():
             unstopped.extend(group.get_unstopped_processes())
 
         if unstopped:
@@ -190,7 +187,7 @@ class Supervisor:
             combined_map.update(socket_map)
             combined_map.update(self.get_process_map())
 
-            pgroups = self.process_groups.values()
+            pgroups = list(self.process_groups.values())
             pgroups.sort()
 
             if self.options.mood < SupervisorStates.RUNNING:
@@ -205,53 +202,51 @@ class Supervisor:
 
                 if not self.shutdown_report():
                     # if there are no unstopped processes (we're done
-                    # killing everything), it's OK to swtop or reload
+                    # killing everything), it's OK to shutdown or reload
                     raise asyncore.ExitNow
-
-            r, w, x = [], [], []
 
             for fd, dispatcher in combined_map.items():
                 if dispatcher.readable():
-                    r.append(fd)
+                    self.options.poller.register_readable(fd)
                 if dispatcher.writable():
-                    w.append(fd)
+                    self.options.poller.register_writable(fd)
 
-            try:
-                r, w, x = self.options.select(r, w, x, timeout)
-            except select.error, err:
-                r = w = x = []
-                if err[0] == errno.EINTR:
-                    self.options.logger.blather('EINTR encountered in select')
-                else:
-                    raise
+            r, w = self.options.poller.poll(timeout)
 
             for fd in r:
-                if combined_map.has_key(fd):
+                if fd in combined_map:
                     try:
                         dispatcher = combined_map[fd]
                         self.options.logger.blather(
-                            'read event caused by %(dispatcher)s',
+                            'read event caused by %(dispatcher)r',
                             dispatcher=dispatcher)
                         dispatcher.handle_read_event()
+                        if (not dispatcher.readable()
+                                and not dispatcher.writable()):
+                            self.options.poller.unregister(fd)
                     except asyncore.ExitNow:
                         raise
                     except:
                         combined_map[fd].handle_error()
 
             for fd in w:
-                if combined_map.has_key(fd):
+                if fd in combined_map:
                     try:
                         dispatcher = combined_map[fd]
                         self.options.logger.blather(
-                            'write event caused by %(dispatcher)s',
+                            'write event caused by %(dispatcher)r',
                             dispatcher=dispatcher)
                         dispatcher.handle_write_event()
+                        if (not dispatcher.readable()
+                                and not dispatcher.writable()):
+                            self.options.poller.unregister(fd)
                     except asyncore.ExitNow:
                         raise
                     except:
                         combined_map[fd].handle_error()
 
-            [ group.transition() for group  in pgroups ]
+            for group in pgroups:
+                group.transition()
 
             self.reap()
             self.handle_signal()
@@ -280,17 +275,21 @@ class Supervisor:
                 self.ticks[period] = this_tick
                 events.notify(event(this_tick, self))
 
-    def reap(self, once=False):
+    def reap(self, once=False, recursionguard=0):
+        if recursionguard == 100:
+            return
         pid, sts = self.options.waitpid()
         if pid:
             process = self.options.pidhistory.get(pid, None)
             if process is None:
-                self.options.logger.critical('reaped unknown pid %s)' % pid)
+                self.options.logger.info('reaped unknown pid %s' % pid)
             else:
                 process.finish(pid, sts)
                 del self.options.pidhistory[pid]
             if not once:
-                self.reap() # keep reaping until no more kids to reap
+                # keep reaping until no more kids to reap, but don't recurse
+                # infintely
+                self.reap(once=False, recursionguard=recursionguard+1)
 
     def handle_signal(self):
         sig = self.options.get_signal()
@@ -323,11 +322,11 @@ def timeslice(period, when):
     return int(when - (when % period))
 
 # profile entry point
-def profile(cmd, globals, locals, sort_order, callers):
+def profile(cmd, globals, locals, sort_order, callers): # pragma: no cover
     try:
         import cProfile as profile
     except ImportError:
-        import profile # python < 2.5
+        import profile
     import pstats
     import tempfile
     fd, fn = tempfile.mkstemp()
@@ -360,18 +359,18 @@ def main(args=None, test=False):
             profile('go(options)', globals(), locals(), sort_order, callers)
         else:
             go(options)
-        if test or (options.mood < SupervisorStates.RESTARTING):
-            break
         options.close_httpservers()
         options.close_logger()
         first = False
+        if test or (options.mood < SupervisorStates.RESTARTING):
+            break
 
-def go(options):
+def go(options): # pragma: no cover
     d = Supervisor(options)
     try:
         d.main()
     except asyncore.ExitNow:
         pass
 
-if __name__ == "__main__":
+if __name__ == "__main__": # pragma: no cover
     main()

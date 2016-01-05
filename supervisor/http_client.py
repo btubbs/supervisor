@@ -2,10 +2,11 @@
 
 import sys
 import socket
-import base64
-from urlparse import urlparse
 
-from supervisor.medusa import asyncore_25 as aysncore
+from supervisor.compat import urlparse
+from supervisor.compat import as_bytes
+from supervisor.compat import as_string
+from supervisor.compat import encodestring
 from supervisor.medusa import asynchat_25 as asynchat
 
 CR="\x0d"
@@ -18,11 +19,11 @@ class Listener(object):
         pass
 
     def error(self, url, error):
-        print url, error
-    
+        sys.stderr.write("%s %s\n" % (url, error))
+
     def response_header(self, url, name, value):
         pass
-    
+
     def done(self, url):
         pass
 
@@ -33,10 +34,16 @@ class Listener(object):
     def close(self, url):
         pass
 
-class HTTPHandler(object, asynchat.async_chat):
-    def __init__(self, listener, username='', password=None):
-        super(HTTPHandler, self).__init__()
-        asynchat.async_chat.__init__(self)
+class HTTPHandler(asynchat.async_chat):
+    def __init__(
+        self,
+        listener,
+        username='',
+        password=None,
+        conn=None,
+        map=None
+        ):
+        asynchat.async_chat.__init__(self, conn, map)
         self.listener = listener
         self.user_agent = 'Supervisor HTTP Client'
         self.buffer = ''
@@ -45,7 +52,7 @@ class HTTPHandler(object, asynchat.async_chat):
         self.part = self.status_line
         self.chunk_size = 0
         self.chunk_read = 0
-        self.length_read = 0        
+        self.length_read = 0
         self.length = 0
         self.encoding = None
         self.username = username
@@ -53,11 +60,12 @@ class HTTPHandler(object, asynchat.async_chat):
         self.url = None
         self.error_handled = False
 
-    def get(self, serverurl, path):
-        if self.url != None:
+    def get(self, serverurl, path=''):
+        if self.url is not None:
             raise AssertionError('Already doing a get')
         self.url = serverurl + path
-        scheme, host, path_ignored, params, query, fragment = urlparse(self.url)
+        scheme, host, path_ignored, params, query, fragment = urlparse.urlparse(
+            self.url)
         if not scheme in ("http", "unix"):
             raise NotImplementedError
         self.host = host
@@ -79,8 +87,8 @@ class HTTPHandler(object, asynchat.async_chat):
             socketname = serverurl[7:]
             self.create_socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.connect(socketname)
-    
-    def close (self):
+
+    def close(self):
         self.listener.close(self.url)
         self.connected = 0
         self.del_channel()
@@ -90,23 +98,23 @@ class HTTPHandler(object, asynchat.async_chat):
     def header(self, name, value):
         self.push('%s: %s' % (name, value))
         self.push(CRLF)
-        
-    def handle_error (self):
-        if self.error_handled == True:
+
+    def handle_error(self):
+        if self.error_handled:
             return
         if 1 or self.connected:
             t,v,tb = sys.exc_info()
             msg = 'Cannot connect, error: %s (%s)' % (t, v)
             self.listener.error(self.url, msg)
-            self.part = self.ignore                
+            self.part = self.ignore
             self.close()
             self.error_handled = True
             del t
             del v
             del tb
-        
+
     def handle_connect(self):
-        self.connected = 1        
+        self.connected = 1
         method = "GET"
         version = "HTTP/1.1"
         self.push("%s %s %s" % (method, self.path, version))
@@ -118,7 +126,7 @@ class HTTPHandler(object, asynchat.async_chat):
         self.header('User-agent', self.user_agent)
         if self.password:
             auth = '%s:%s' % (self.username, self.password)
-            auth = base64.encodestring(auth).strip()
+            auth = as_string(encodestring(as_bytes(auth))).strip()
             self.header('Authorization', 'Basic %s' % auth)
         self.push(CRLF)
         self.push(CRLF)
@@ -126,7 +134,7 @@ class HTTPHandler(object, asynchat.async_chat):
 
     def feed(self, data):
         self.listener.feed(self.url, data)
-        
+
     def collect_incoming_data(self, bytes):
         self.buffer = self.buffer + bytes
         if self.part==self.body:
@@ -135,11 +143,11 @@ class HTTPHandler(object, asynchat.async_chat):
 
     def found_terminator(self):
         self.part()
-        self.buffer = ''        
+        self.buffer = ''
 
     def ignore(self):
         self.buffer = ''
-    
+
     def status_line(self):
         line = self.buffer
 
@@ -147,9 +155,9 @@ class HTTPHandler(object, asynchat.async_chat):
         status = int(status)
         if not version.startswith('HTTP/'):
             raise ValueError(line)
-            
+
         self.listener.status(self.url, status)
-        
+
         if status == 200:
             self.part = self.headers
         else:
@@ -172,15 +180,15 @@ class HTTPHandler(object, asynchat.async_chat):
             if name and value:
                 name = name.lower()
                 value = value.strip()
-                if name=="Transfer-Encoding".lower():
+                if name=="transfer-encoding":
                     self.encoding = value
-                elif name=="Content-Length".lower():
+                elif name=="content-length":
                     self.length = int(value)
                 self.response_header(name, value)
 
     def response_header(self, name, value):
         self.listener.response_header(self.url, name, value)
-    
+
     def body(self):
         self.done()
         self.close()
@@ -197,9 +205,9 @@ class HTTPHandler(object, asynchat.async_chat):
             self.part = self.trailer
         else:
             self.set_terminator(chunk_size)
-            self.part = self.chunked_body            
+            self.part = self.chunked_body
         self.length += chunk_size
-        
+
     def chunked_body(self):
         line = self.buffer
         self.set_terminator(CRLF)
@@ -213,15 +221,3 @@ class HTTPHandler(object, asynchat.async_chat):
         if line==CRLF:
             self.done()
             self.close()
-
-if __name__ == '__main__':
-    url = sys.argv[1]
-    listener = Listener()
-    handler = HTTPHandler(listener)
-    try:
-        handler.get(url)
-    except Exception, e:
-        listener.error(url, "Error connecting '%s'" % e)
-
-    asyncore.loop()
-

@@ -222,6 +222,7 @@ Process Control
 
             {'name':           'process name',
              'group':          'group name',
+             'description':    'pid 18806, uptime 0:03:12'
              'start':          1200361776,
              'stop':           0,
              'now':            1200361812,
@@ -229,6 +230,7 @@ Process Control
              'statename':      'RUNNING',
              'spawnerr':       '',
              'exitstatus':     0,
+             'logfile':        '/path/to/stdout-log', # deprecated, b/c only
              'stdout_logfile': '/path/to/stdout-log',
              'stderr_logfile': '/path/to/stderr-log',
              'pid':            1}
@@ -241,14 +243,21 @@ Process Control
 
             Name of the process' group
 
+        .. describe:: description
+
+            If process state is running description's value is process_id
+            and uptime. Example "pid 18806, uptime 0:03:12 ".
+            If process state is stopped description's value is stop time.
+            Example:"Jun 5 03:16 PM ".
+
         .. describe:: start
 
             UNIX timestamp of when the process was started
 
         .. describe:: stop
 
-            UNIX timestamp of when the process ended, or 0 if the process is
-            still running.
+            UNIX timestamp of when the process last ended, or 0 if the process
+            has never been stopped.
 
         .. describe:: now
 
@@ -257,11 +266,17 @@ Process Control
 
         .. describe:: state
 
-            State code, see table below.
+            State code, see :ref:`process_states`.
 
         .. describe:: statename
 
-            String description of `state`, see table below.
+            String description of `state`, see :ref:`process_states`.
+
+        .. describe:: logfile
+
+            Deprecated alias for ``stdout_logfile``.  This is provided only
+            for compatibility with clients written for Supervisor 2.x and
+            may be removed in the future.  Use ``stdout_logfile`` instead.
 
         .. describe:: stdout_logfile
 
@@ -290,7 +305,7 @@ Process Control
     .. automethod:: getAllProcessInfo
 
         Each element contains a struct, and this struct contains the exact
-        same elements as the struct returned by ``getProcess``. If the process
+        same elements as the struct returned by ``getProcessInfo``. If the process
         table is empty, an empty array is returned.
 
     .. automethod:: startProcess
@@ -299,13 +314,23 @@ Process Control
 
     .. automethod:: startProcessGroup
 
+    .. automethod:: stopProcess
+
     .. automethod:: stopProcessGroup
 
     .. automethod:: stopAllProcesses
 
+    .. automethod:: signalProcess
+
+    .. automethod:: signalProcessGroup
+
+    .. automethod:: signalAllProcesses
+
     .. automethod:: sendProcessStdin
 
     .. automethod:: sendRemoteCommEvent
+
+    .. automethod:: reloadConfig
 
     .. automethod:: addProcessGroup
 

@@ -39,11 +39,11 @@ configuration options which aren't shown here.  See
 
 Running :program:`supervisord`
 ------------------------------
-    
+
 To start :program:`supervisord`, run :file:`$BINDIR/supervisord`.  The
 resulting process will daemonize itself and detach from the terminal.
 It keeps an operations log at :file:`$CWD/supervisor.log` by default.
-      
+
 You may start the :command:`supervisord` executable in the foreground
 by passing the ``-n`` flag on its command line.  This is useful to
 debug startup problems.
@@ -65,7 +65,7 @@ restart the :program:`supervisord` process.  This file has several
 example program definitions.
 
 The :command:`supervisord` command accepts a number of command-line
-options.  Each of thsese command line options overrides any equivalent
+options.  Each of these command line options overrides any equivalent
 value in the configuration file.
 
 :command:`supervisord` Command-Line Options
@@ -160,10 +160,50 @@ value in the configuration file.
    following: ``cumulative``, ``calls``, ``callers``.
    E.g. ``cumulative,callers``.
 
---minprocs=NUM 
+--minprocs=NUM
 
    The minimum number of OS process slots that must be available to
    the supervisord process before it will start successfully.
+
+
+:command:`supervisorctl` Command-Line Options
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+-c, --configuration
+
+   Configuration file path (default /etc/supervisord.conf)
+
+-h, --help
+
+   Print usage message and exit
+
+-i, --interactive
+
+   Start an interactive shell after executing commands
+
+-s, --serverurl URL
+
+   URL on which supervisord server is listening (default "http://localhost:9001").
+
+-u, --username
+
+   Username to use for authentication with server
+
+-p, --password
+
+   Password to use for authentication with server
+
+-r, --history-file
+
+   Keep a readline history (if readline is available)
+
+`action [arguments]`
+
+Actions are commands like "tail" or "stop".  If -i is specified or no action is
+specified on the command line, a "shell" interpreting actions typed
+interactively is started.  Use the action "help" to find out about available
+actions.
+
 
 Running :program:`supervisorctl`
 --------------------------------
@@ -216,7 +256,7 @@ Signal Handlers
 ``SIGHUP``
 
   :program:`supervisord` will stop all processes, reload the
-  configuration from the first config file it finds, and restart all
+  configuration from the first config file it finds, and start all
   processes.
 
 ``SIGUSR2``
@@ -243,7 +283,7 @@ your ``PYTHONPATH`` is sane and that all Python standard
 library files have adequate file permission protections.
 
 Running :program:`supervisord` automatically on startup
---------------------------------------------------------
+-------------------------------------------------------
 
 If you are using a distribution-packaged version of Supervisor, it should
 already be integrated into the service management infrastructure of your

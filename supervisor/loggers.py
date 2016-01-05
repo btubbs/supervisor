@@ -13,11 +13,8 @@ import sys
 import time
 import traceback
 
-try:
-    import syslog
-except ImportError:
-    # only required when 'syslog' is specified as the log filename
-    pass
+from supervisor.compat import syslog
+from supervisor.compat import long
 
 class LevelsByName:
     CRIT = 50   # messages that probably require immediate user attention
@@ -53,6 +50,11 @@ def getLevelNumByDescription(description):
 class Handler:
     fmt = '%(message)s'
     level = LevelsByName.INFO
+
+    def __init__(self, stream=None):
+        self.stream = stream
+        self.closed = False
+
     def setFormat(self, fmt):
         self.fmt = fmt
 
@@ -62,17 +64,25 @@ class Handler:
     def flush(self):
         try:
             self.stream.flush()
-        except IOError, why:
+        except IOError as why:
             # if supervisor output is piped, EPIPE can be raised at exit
-            if why[0] != errno.EPIPE:
+            if why.args[0] != errno.EPIPE:
                 raise
 
     def close(self):
-        if hasattr(self.stream, 'fileno'):
-            fd = self.stream.fileno()
-            if fd < 3: # don't ever close stdout or stderr
-                return
-        self.stream.close()
+        if not self.closed:
+            if hasattr(self.stream, 'fileno'):
+                try:
+                    fd = self.stream.fileno()
+                except IOError:
+                    # on python 3, io.IOBase objects always have fileno()
+                    # but calling it may raise io.UnsupportedOperation
+                    pass
+                else:
+                    if fd < 3: # don't ever close stdout or stderr
+                        return
+            self.stream.close()
+            self.closed = True
 
     def emit(self, record):
         try:
@@ -83,36 +93,16 @@ class Handler:
                 self.stream.write(msg.encode("UTF-8"))
             self.flush()
         except:
-            self.handleError(record)
+            self.handleError()
 
-    def handleError(self, record):
+    def handleError(self):
         ei = sys.exc_info()
         traceback.print_exception(ei[0], ei[1], ei[2], None, sys.stderr)
         del ei
 
-class FileHandler(Handler):
-    """File handler which supports reopening of logs.
-    """
-
-    def __init__(self, filename, mode="a"):
-        self.stream = open(filename, mode)
-        self.baseFilename = filename
-        self.mode = mode
-
-    def reopen(self):
-        self.close()
-        self.stream = open(self.baseFilename, self.mode)
-
-    def remove(self):
-        try:
-            os.remove(self.baseFilename)
-        except OSError, why:
-            if why[0] != errno.ENOENT:
-                raise
-
 class StreamHandler(Handler):
     def __init__(self, strm=None):
-        self.stream = strm
+        Handler.__init__(self, strm)
 
     def remove(self):
         if hasattr(self.stream, 'clear'):
@@ -143,6 +133,29 @@ class BoundIO:
 
     def clear(self):
         self.buf = ''
+
+class FileHandler(Handler):
+    """File handler which supports reopening of logs.
+    """
+
+    def __init__(self, filename, mode="a"):
+        Handler.__init__(self)
+        self.stream = open(filename, mode)
+        self.baseFilename = filename
+        self.mode = mode
+
+    def reopen(self):
+        self.close()
+        self.stream = open(self.baseFilename, self.mode)
+        self.closed = False
+
+    def remove(self):
+        self.close()
+        try:
+            os.remove(self.baseFilename)
+        except OSError as why:
+            if why.args[0] != errno.ENOENT:
+                raise
 
 class RotatingFileHandler(FileHandler):
     def __init__(self, filename, mode='a', maxBytes=512*1024*1024,
@@ -185,6 +198,34 @@ class RotatingFileHandler(FileHandler):
         FileHandler.emit(self, record)
         self.doRollover()
 
+    def _remove(self, fn): # pragma: no cover
+        # this is here to service stubbing in unit tests
+        return os.remove(fn)
+
+    def _rename(self, src, tgt): # pragma: no cover
+        # this is here to service stubbing in unit tests
+        return os.rename(src, tgt)
+
+    def _exists(self, fn): # pragma: no cover
+        # this is here to service stubbing in unit tests
+        return os.path.exists(fn)
+
+    def removeAndRename(self, sfn, dfn):
+        if self._exists(dfn):
+            try:
+                self._remove(dfn)
+            except OSError as why:
+                # catch race condition (destination already deleted)
+                if why.args[0] != errno.ENOENT:
+                    raise
+        try:
+            self._rename(sfn, dfn)
+        except OSError as why:
+            # catch exceptional condition (source deleted)
+            # E.g. cleanup script removes active log.
+            if why.args[0] != errno.ENOENT:
+                raise
+
     def doRollover(self):
         """
         Do a rollover, as described in __init__().
@@ -201,23 +242,9 @@ class RotatingFileHandler(FileHandler):
                 sfn = "%s.%d" % (self.baseFilename, i)
                 dfn = "%s.%d" % (self.baseFilename, i + 1)
                 if os.path.exists(sfn):
-                    if os.path.exists(dfn):
-                        try:
-                            os.remove(dfn)
-                        except OSError, why:
-                            # catch race condition (already deleted)
-                            if why[0] != errno.ENOENT:
-                                raise
-                    os.rename(sfn, dfn)
+                    self.removeAndRename(sfn, dfn)
             dfn = self.baseFilename + ".1"
-            if os.path.exists(dfn):
-                try:
-                    os.remove(dfn)
-                except OSError, why:
-                    # catch race condition (already deleted)
-                    if why[0] != errno.ENOENT:
-                        raise
-            os.rename(self.baseFilename, dfn)
+            self.removeAndRename(self.baseFilename, dfn)
         self.stream = open(self.baseFilename, 'w')
 
 class LogRecord:
@@ -298,13 +325,18 @@ class Logger:
 
 class SyslogHandler(Handler):
     def __init__(self):
-        assert 'syslog' in globals(), "Syslog module not present"
+        Handler.__init__(self)
+        assert syslog is not None, "Syslog module not present"
 
     def close(self):
         pass
 
     def reopen(self):
         pass
+
+    def _syslog(self, msg): # pragma: no cover
+        # this exists only for unit test stubbing
+        syslog.syslog(msg)
 
     def emit(self, record):
         try:
@@ -314,11 +346,11 @@ class SyslogHandler(Handler):
                 params['message'] = line
                 msg = self.fmt % params
                 try:
-                    syslog.syslog(msg)
+                    self._syslog(msg)
                 except UnicodeError:
-                    syslog.syslog(msg.encode("UTF-8"))
+                    self._syslog(msg.encode("UTF-8"))
         except:
-            self.handleError(record)
+            self.handleError()
 
 def getLogger(level=None):
     return Logger(level)

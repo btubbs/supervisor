@@ -1,7 +1,6 @@
 # -*- Mode: Python -*-
 
 import re
-import string
 import time
 
 def concat (*args):
@@ -42,10 +41,10 @@ months_reg = group (join (months, '|'))
 # rfc822 format
 rfc822_date = join (
         [concat (short_day_reg,','),    # day
-         group('[0-9][0-9]?'),                  # date
-         months_reg,                                    # month
-         group('[0-9]+'),                               # year
-         hms_reg,                                               # hour minute second
+         group('[0-9][0-9]?'),          # date
+         months_reg,                    # month
+         group('[0-9]+'),               # year
+         hms_reg,                       # hour minute second
          'gmt'
          ],
         ' '
@@ -53,16 +52,16 @@ rfc822_date = join (
 
 rfc822_reg = re.compile (rfc822_date)
 
-def unpack_rfc822 (m):
+def unpack_rfc822(m):
     g = m.group
-    a = string.atoi
+    i = int
     return (
-            a(g(4)),                # year
+            i(g(4)),        # year
             monmap[g(3)],   # month
-            a(g(2)),                # day
-            a(g(5)),                # hour
-            a(g(6)),                # minute
-            a(g(7)),                # second
+            i(g(2)),        # day
+            i(g(5)),        # hour
+            i(g(6)),        # minute
+            i(g(7)),        # second
             0,
             0,
             0
@@ -86,29 +85,29 @@ rfc850_date = join (
 
 rfc850_reg = re.compile (rfc850_date)
 # they actually unpack the same way
-def unpack_rfc850 (m):
+def unpack_rfc850(m):
     g = m.group
-    a = string.atoi
+    i = int
     return (
-            a(g(4)),                # year
+            i(g(4)),        # year
             monmap[g(3)],   # month
-            a(g(2)),                # day
-            a(g(5)),                # hour
-            a(g(6)),                # minute
-            a(g(7)),                # second
+            i(g(2)),        # day
+            i(g(5)),        # hour
+            i(g(6)),        # minute
+            i(g(7)),        # second
             0,
             0,
             0
             )
 
-# parsdate.parsedate    - ~700/sec.
+# parsedate.parsedate    - ~700/sec.
 # parse_http_date       - ~1333/sec.
 
 def build_http_date (when):
     return time.strftime ('%a, %d %b %Y %H:%M:%S GMT', time.gmtime(when))
 
 def parse_http_date (d):
-    d = string.lower (d)
+    d = d.lower()
     tz = time.timezone
     m = rfc850_reg.match (d)
     if m and m.end() == len(d):
@@ -122,5 +121,5 @@ def parse_http_date (d):
     # Thanks to Craig Silverstein <csilvers@google.com> for pointing
     # out the DST discrepancy
     if time.daylight and time.localtime(retval)[-1] == 1: # DST correction
-        retval = retval + (tz - time.altzone)
+        retval += tz - time.altzone
     return retval
